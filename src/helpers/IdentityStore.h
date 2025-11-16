@@ -8,6 +8,9 @@
   #define FILESYSTEM  Adafruit_LittleFS
 
   using namespace Adafruit_LittleFS_Namespace;
+#elif defined(ARCH_PORTDUINO)
+  #include <FS.h>
+  #define FILESYSTEM  fs::FS
 #endif
 #include <Identity.h>
 
