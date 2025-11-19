@@ -10,6 +10,7 @@
 
 StdRNG fast_rng;
 SimpleMeshTables tables;
+
 MyMesh the_mesh(board, radio_driver, *new ArduinoMillis(), fast_rng, rtc_clock, tables);
 
 void halt() {
@@ -33,15 +34,21 @@ void setup() {
   }
 #endif
 
-  if (!radio_init()) { halt(); }
+  if (!radio_init()) {
+    halt();
+  }
 
   fast_rng.begin(radio_get_rng_seed());
 
   FILESYSTEM* fs;
-#if defined(NRF52_PLATFORM)
+#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
   InternalFS.begin();
   fs = &InternalFS;
   IdentityStore store(InternalFS, "");
+#elif defined(ESP32)
+  SPIFFS.begin(true);
+  fs = &SPIFFS;
+  IdentityStore store(SPIFFS, "/identity");
 #elif defined(RP2040_PLATFORM)
   LittleFS.begin();
   fs = &LittleFS;
@@ -51,14 +58,11 @@ void setup() {
   fs = &PortduinoFS;
   IdentityStore store(PortduinoFS, "/identity");
   store.begin();
-#elif defined(ESP32)
-  SPIFFS.begin(true);
-  fs = &SPIFFS;
-  IdentityStore store(SPIFFS, "/identity");
 #else
   #error "need to define filesystem"
 #endif
   if (!store.load("_main", the_mesh.self_id)) {
+    MESH_DEBUG_PRINTLN("Generating new keypair");
     the_mesh.self_id = radio_new_identity();   // create new random identity
     int count = 0;
     while (count < 10 && (the_mesh.self_id.pub_key[0] == 0x00 || the_mesh.self_id.pub_key[0] == 0xFF)) {  // reserved id hashes
@@ -91,14 +95,16 @@ void loop() {
     if (c != '\n') {
       command[len++] = c;
       command[len] = 0;
+      Serial.print(c);
     }
-    Serial.print(c);
+    if (c == '\r') break;
   }
   if (len == sizeof(command)-1) {  // command buffer full
     command[sizeof(command)-1] = '\r';
   }
 
   if (len > 0 && command[len - 1] == '\r') {  // received complete line
+    Serial.print('\n');
     command[len - 1] = 0;  // replace newline with C string null terminator
     char reply[160];
     the_mesh.handleCommand(0, command, reply);  // NOTE: there is no sender_timestamp via serial!

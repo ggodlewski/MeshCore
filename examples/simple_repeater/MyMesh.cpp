@@ -1,37 +1,7 @@
 #include "MyMesh.h"
 #include <algorithm>
 
-/* ------------------------------ Config -------------------------------- */
-
-#ifndef LORA_FREQ
-  #define LORA_FREQ 915.0
-#endif
-#ifndef LORA_BW
-  #define LORA_BW 250
-#endif
-#ifndef LORA_SF
-  #define LORA_SF 10
-#endif
-#ifndef LORA_CR
-  #define LORA_CR 5
-#endif
-#ifndef LORA_TX_POWER
-  #define LORA_TX_POWER 20
-#endif
-
-#ifndef ADVERT_NAME
-  #define ADVERT_NAME "repeater"
-#endif
-#ifndef ADVERT_LAT
-  #define ADVERT_LAT 0.0
-#endif
-#ifndef ADVERT_LON
-  #define ADVERT_LON 0.0
-#endif
-
-#ifndef ADMIN_PASSWORD
-  #define ADMIN_PASSWORD "password"
-#endif
+#define CLI_REPLY_DELAY_MILLIS      600
 
 #ifndef SERVER_RESPONSE_DELAY
   #define SERVER_RESPONSE_DELAY 300
@@ -51,9 +21,24 @@
 
 #define RESP_SERVER_LOGIN_OK        0 // response to ANON_REQ
 
-#define CLI_REPLY_DELAY_MILLIS      600
-
 #define LAZY_CONTACTS_WRITE_DELAY    5000
+
+struct RepeaterStats {
+  uint16_t batt_milli_volts;
+  uint16_t curr_tx_queue_len;
+  int16_t  noise_floor;
+  int16_t  last_rssi;
+  uint32_t n_packets_recv;
+  uint32_t n_packets_sent;
+  uint32_t total_air_time_secs;
+  uint32_t total_up_time_secs;
+  uint32_t n_sent_flood, n_sent_direct;
+  uint32_t n_recv_flood, n_recv_direct;
+  uint16_t err_events; // was 'n_full_events'
+  int16_t  last_snr;   // x 4
+  uint16_t n_direct_dups, n_flood_dups;
+  uint32_t total_rx_air_time_secs;
+};
 
 void MyMesh::putNeighbour(const mesh::Identity &id, uint32_t timestamp, float snr) {
 #if MAX_NEIGHBOURS // check if neighbours enabled
@@ -140,7 +125,8 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
   // memcpy(reply_data, &now, 4);   // response packets always prefixed with timestamp
   memcpy(reply_data, &sender_timestamp, 4); // reflect sender_timestamp back in response packet (kind of like a 'tag')
 
-  if (payload[0] == REQ_TYPE_GET_STATUS) {  // guests can also access this now
+  if (payload[0] == REQ_TYPE_GET_STATUS) {
+   // guests can also access this now
     RepeaterStats stats;
     stats.batt_milli_volts = board.getBattMilliVolts();
     stats.curr_tx_queue_len = _mgr->getOutboundCount(0xFFFFFFFF);
@@ -161,8 +147,7 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
     stats.total_rx_air_time_secs = getReceiveAirTime() / 1000;
 
     memcpy(&reply_data[4], &stats, sizeof(stats));
-
-    return 4 + sizeof(stats); //  reply_len
+    return 4 + sizeof(stats); // reply_len
   }
   if (payload[0] == REQ_TYPE_GET_TELEMETRY_DATA) {
     uint8_t perm_mask = ~(payload[1]); // NEW: first reserved byte (of 4), is now inverse mask to apply to permissions
@@ -186,7 +171,7 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
       uint8_t ofs = 4;
       for (int i = 0; i < acl.getNumClients() && ofs + 7 <= sizeof(reply_data) - 4; i++) {
         auto c = acl.getClientByIdx(i);
-        if (c->permissions == 0) continue;  // skip deleted entries
+        if (c->permissions == 0) continue; // skip deleted entries
         memcpy(&reply_data[ofs], c->id.pub_key, 6); ofs += 6;  // just 6-byte pub_key prefix
         reply_data[ofs++] = c->permissions;
       }
@@ -340,7 +325,6 @@ void MyMesh::logRx(mesh::Packet *pkt, int len, float score) {
     bridge.sendPacket(pkt);
   }
 #endif
-
   if (_logging) {
     File f = openAppend(PACKET_LOG_FILE);
     if (f) {
@@ -479,26 +463,6 @@ void MyMesh::getPeerSharedSecret(uint8_t *dest_secret, int peer_idx) {
   }
 }
 
-static bool isShare(const mesh::Packet *packet) {
-  if (packet->hasTransportCodes()) {
-    return packet->transport_codes[0] == 0 && packet->transport_codes[1] == 0;  // codes { 0, 0 } means 'send to nowhere'
-  }
-  return false;
-}
-
-void MyMesh::onAdvertRecv(mesh::Packet *packet, const mesh::Identity &id, uint32_t timestamp,
-                          const uint8_t *app_data, size_t app_data_len) {
-  mesh::Mesh::onAdvertRecv(packet, id, timestamp, app_data, app_data_len); // chain to super impl
-
-  // if this a zero hop advert (and not via 'Share'), add it to neighbours
-  if (packet->path_len == 0 && !isShare(packet)) {
-    AdvertDataParser parser(app_data, app_data_len);
-    if (parser.isValid() && parser.getType() == ADV_TYPE_REPEATER) { // just keep neigbouring Repeaters
-      putNeighbour(id, timestamp, packet->getSNR());
-    }
-  }
-}
-
 void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, const uint8_t *secret,
                             uint8_t *data, size_t len) {
   int i = matching_peer_indexes[sender_idx];
@@ -621,6 +585,26 @@ bool MyMesh::onPeerPathRecv(mesh::Packet *packet, int sender_idx, const uint8_t 
   return false;
 }
 
+static bool isShare(const mesh::Packet *packet) {
+  if (packet->hasTransportCodes()) {
+    return packet->transport_codes[0] == 0 && packet->transport_codes[1] == 0;  // codes { 0, 0 } means 'send to nowhere'
+  }
+  return false;
+}
+
+void MyMesh::onAdvertRecv(mesh::Packet *packet, const mesh::Identity &id, uint32_t timestamp,
+                          const uint8_t *app_data, size_t app_data_len) {
+  mesh::Mesh::onAdvertRecv(packet, id, timestamp, app_data, app_data_len); // chain to super impl
+
+  // if this a zero hop advert (and not via 'Share'), add it to neighbours
+  if (packet->path_len == 0 && !isShare(packet)) {
+    AdvertDataParser parser(app_data, app_data_len);
+    if (parser.isValid() && parser.getType() == ADV_TYPE_REPEATER) { // just keep neigbouring Repeaters
+      putNeighbour(id, timestamp, packet->getSNR());
+    }
+  }
+}
+
 #define CTL_TYPE_NODE_DISCOVER_REQ   0x80
 #define CTL_TYPE_NODE_DISCOVER_RESP  0x90
 
@@ -680,7 +664,7 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   // defaults
   memset(&_prefs, 0, sizeof(_prefs));
   _prefs.airtime_factor = 1.0;   // one half
-  _prefs.rx_delay_base = 0.0f;   // turn off by default, was 10.0;
+  _prefs.rx_delay_base = 0.0f;   // off by default, was 10.0
   _prefs.tx_delay_factor = 0.5f; // was 0.25f
   _prefs.direct_tx_delay_factor = 0.2f; // was zero
   StrHelper::strncpy(_prefs.node_name, ADVERT_NAME, sizeof(_prefs.node_name));
@@ -753,8 +737,6 @@ bool MyMesh::formatFileSystem() {
   return InternalFS.format();
 #elif defined(RP2040_PLATFORM)
   return LittleFS.format();
-#elif defined(ARCH_PORTDUINO)
-  return true;
 #elif defined(ARCH_PORTDUINO)
   return true;
 #elif defined(ESP32)

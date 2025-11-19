@@ -17,7 +17,7 @@ void halt() {
   while (1) ;
 }
 
-static char command[160];
+static char command[MAX_POST_TEXT_LEN+1];
 
 void setup() {
   Serial.begin(115200);

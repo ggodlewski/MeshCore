@@ -16,6 +16,7 @@
 #define REQ_TYPE_KEEP_ALIVE         0x02
 #define REQ_TYPE_GET_TELEMETRY_DATA 0x03
 #define REQ_TYPE_GET_ACCESS_LIST    0x05
+#define REQ_TYPE_GET_NEIGHBOURS     0x06
 
 #define RESP_SERVER_LOGIN_OK        0 // response to ANON_REQ
 
@@ -24,8 +25,8 @@
 struct ServerStats {
   uint16_t batt_milli_volts;
   uint16_t curr_tx_queue_len;
-  int16_t noise_floor;
-  int16_t last_rssi;
+  int16_t  noise_floor;
+  int16_t  last_rssi;
   uint32_t n_packets_recv;
   uint32_t n_packets_sent;
   uint32_t total_air_time_secs;
@@ -33,7 +34,7 @@ struct ServerStats {
   uint32_t n_sent_flood, n_sent_direct;
   uint32_t n_recv_flood, n_recv_direct;
   uint16_t err_events; // was 'n_full_events'
-  int16_t last_snr;    // x 4
+  int16_t  last_snr;   // x 4
   uint16_t n_direct_dups, n_flood_dups;
   uint16_t n_posted, n_post_push;
 };
@@ -129,8 +130,7 @@ File MyMesh::openAppend(const char *fname) {
 #endif
 }
 
-int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t *payload,
-                          size_t payload_len) {
+int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t *payload, size_t payload_len) {
   // uint32_t now = getRTCClock()->getCurrentTimeUnique();
   // memcpy(reply_data, &now, 4);   // response packets always prefixed with timestamp
   memcpy(reply_data, &sender_timestamp, 4); // reflect sender_timestamp back in response packet (kind of like a 'tag')
@@ -157,7 +157,7 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
     stats.n_post_push = _num_post_pushes;
 
     memcpy(&reply_data[4], &stats, sizeof(stats));
-    return 4 + sizeof(stats);
+    return 4 + sizeof(stats); // reply_len
   }
   if (payload[0] == REQ_TYPE_GET_TELEMETRY_DATA) {
     uint8_t perm_mask = ~(payload[1]); // NEW: first reserved byte (of 4), is now inverse mask to apply to permissions
@@ -181,7 +181,7 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
       uint8_t ofs = 4;
       for (int i = 0; i < acl.getNumClients() && ofs + 7 <= sizeof(reply_data) - 4; i++) {
         auto c = acl.getClientByIdx(i);
-        if (!c->isAdmin()) continue;  // skip non-Admin entries
+        if (!c->isAdmin()) continue; // skip non-Admin entries
         memcpy(&reply_data[ofs], c->id.pub_key, 6); ofs += 6;  // just 6-byte pub_key prefix
         reply_data[ofs++] = c->permissions;
       }
@@ -219,6 +219,7 @@ void MyMesh::logRx(mesh::Packet *pkt, int len, float score) {
     }
   }
 }
+
 void MyMesh::logTx(mesh::Packet *pkt, int len) {
   if (_logging) {
     File f = openAppend(PACKET_LOG_FILE);
@@ -237,6 +238,7 @@ void MyMesh::logTx(mesh::Packet *pkt, int len) {
     }
   }
 }
+
 void MyMesh::logTxFail(mesh::Packet *pkt, int len) {
   if (_logging) {
     File f = openAppend(PACKET_LOG_FILE);
@@ -254,6 +256,15 @@ int MyMesh::calcRxDelay(float score, uint32_t air_time) const {
   return (int)((pow(_prefs.rx_delay_base, 0.85f - score) - 1.0) * air_time);
 }
 
+uint32_t MyMesh::getRetransmitDelay(const mesh::Packet *packet) {
+  uint32_t t = (_radio->getEstAirtimeFor(packet->path_len + packet->payload_len + 2) * _prefs.tx_delay_factor);
+  return getRNG()->nextInt(0, 5*t + 1);
+}
+uint32_t MyMesh::getDirectRetransmitDelay(const mesh::Packet *packet) {
+  uint32_t t = (_radio->getEstAirtimeFor(packet->path_len + packet->payload_len + 2) * _prefs.direct_tx_delay_factor);
+  return getRNG()->nextInt(0, 5*t + 1);
+}
+
 const char *MyMesh::getLogDateTime() {
   static char tmp[32];
   uint32_t now = getRTCClock()->getCurrentTime();
@@ -263,14 +274,6 @@ const char *MyMesh::getLogDateTime() {
   return tmp;
 }
 
-uint32_t MyMesh::getRetransmitDelay(const mesh::Packet *packet) {
-  uint32_t t = (_radio->getEstAirtimeFor(packet->path_len + packet->payload_len + 2) * _prefs.tx_delay_factor);
-  return getRNG()->nextInt(0, 5*t + 1);
-}
-uint32_t MyMesh::getDirectRetransmitDelay(const mesh::Packet *packet) {
-  uint32_t t = (_radio->getEstAirtimeFor(packet->path_len + packet->payload_len + 2) * _prefs.direct_tx_delay_factor);
-  return getRNG()->nextInt(0, 5*t + 1);
-}
 
 bool MyMesh::allowPacketForward(const mesh::Packet *packet) {
   if (_prefs.disable_fwd) return false;
@@ -595,7 +598,7 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   memset(&_prefs, 0, sizeof(_prefs));
   _prefs.airtime_factor = 1.0;   // one half
   _prefs.rx_delay_base = 0.0f;   // off by default, was 10.0
-  _prefs.tx_delay_factor = 0.5f; // was 0.25f;
+  _prefs.tx_delay_factor = 0.5f; // was 0.25f
   _prefs.direct_tx_delay_factor = 0.2f; // was zero
   StrHelper::strncpy(_prefs.node_name, ADVERT_NAME, sizeof(_prefs.node_name));
   _prefs.node_lat = ADVERT_LAT;
@@ -606,11 +609,11 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _prefs.bw = LORA_BW;
   _prefs.cr = LORA_CR;
   _prefs.tx_power_dbm = LORA_TX_POWER;
-  _prefs.disable_fwd = 1;
   _prefs.advert_interval = 1;        // default to 2 minutes for NEW installs
   _prefs.flood_advert_interval = 12; // 12 hours
   _prefs.flood_max = 64;
   _prefs.interference_threshold = 0; // disabled
+  _prefs.disable_fwd = 1;
 #ifdef ROOM_PASSWORD
   StrHelper::strncpy(_prefs.guest_password, ROOM_PASSWORD, sizeof(_prefs.guest_password));
 #endif
@@ -657,7 +660,7 @@ void MyMesh::applyTempRadioParams(float freq, float bw, uint8_t sf, uint8_t cr, 
 }
 
 bool MyMesh::formatFileSystem() {
-#if defined(NRF52_PLATFORM)
+#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
   return InternalFS.format();
 #elif defined(RP2040_PLATFORM)
   return LittleFS.format();
@@ -682,11 +685,12 @@ void MyMesh::sendSelfAdvertisement(int delay_millis) {
 
 void MyMesh::updateAdvertTimer() {
   if (_prefs.advert_interval > 0) { // schedule local advert timer
-    next_local_advert = futureMillis((uint32_t)_prefs.advert_interval * 2 * 60 * 1000);
+    next_local_advert = futureMillis(((uint32_t)_prefs.advert_interval) * 2 * 60 * 1000);
   } else {
     next_local_advert = 0; // stop the timer
   }
 }
+
 void MyMesh::updateFloodAdvertTimer() {
   if (_prefs.flood_advert_interval > 0) { // schedule flood advert timer
     next_flood_advert = futureMillis(((uint32_t)_prefs.flood_advert_interval) * 60 * 60 * 1000);
