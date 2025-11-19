@@ -30,6 +30,10 @@ class CustomSX1268 : public SX1268 {
   #if defined(P_LORA_SCLK)
     #ifdef NRF52_PLATFORM
       if (spi) { spi->setPins(P_LORA_MISO, P_LORA_SCLK, P_LORA_MOSI); spi->begin(); }
+    #elif defined(LORA_SPIDEV)
+      if (spi) {
+        spi->begin(LORA_SPIDEV);
+      }
     #elif defined(RP2040_PLATFORM)
       if (spi) {
         spi->setMISO(P_LORA_MISO);
