@@ -42,9 +42,9 @@ public:
   void begin() {
   }
   uint32_t getCurrentTime() override {
-    time_t _now;
-    time(&_now);
-    return _now;
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec;
   }
   void setCurrentTime(uint32_t time) override {
     struct timeval tv;

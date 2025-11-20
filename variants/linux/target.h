@@ -5,7 +5,6 @@
 #include <helpers/radiolib/RadioLibWrappers.h>
 #include <LinuxBoard.h>
 #include <helpers/radiolib/CustomSX1276Wrapper.h>
-#include <helpers/AutoDiscoverRTCClock.h>
 #include <helpers/sensors/EnvironmentSensorManager.h>
 #ifdef DISPLAY_CLASS
   #include <helpers/ui/SSD1306Display.h>
@@ -18,7 +17,7 @@
 
 extern LinuxBoard board;
 extern WRAPPER_CLASS radio_driver;
-extern AutoDiscoverRTCClock rtc_clock;
+extern LinuxRTCClock rtc_clock;
 extern EnvironmentSensorManager sensors;
 
 #ifdef DISPLAY_CLASS

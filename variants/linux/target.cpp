@@ -1,15 +1,24 @@
 #include <Arduino.h>
 #include "target.h"
 
+class PortduinoHal : public ArduinoHal
+{
+public:
+  PortduinoHal(SPIClass &spi, SPISettings spiSettings) : ArduinoHal(spi, spiSettings){};
+
+  void spiTransfer(uint8_t *out, size_t len, uint8_t *in) {
+    spi->transfer(out, in, len);
+  }
+};
+
 LinuxBoard board;
 
-static SPIClass spi;
-RADIO_CLASS radio = new Module(P_LORA_NSS, P_LORA_DIO_0, P_LORA_RESET, P_LORA_DIO_1, spi);
-
+SPISettings spiSettings = SPISettings(2000000, MSBFIRST, SPI_MODE0);
+ArduinoHal *hal = new PortduinoHal(SPI, spiSettings);
+RADIO_CLASS radio = new Module(hal, P_LORA_NSS, P_LORA_DIO_0, P_LORA_RESET, P_LORA_BUSY);
 WRAPPER_CLASS radio_driver(radio, board);
 
-LinuxRTCClock fallback_clock;
-AutoDiscoverRTCClock rtc_clock(fallback_clock);
+LinuxRTCClock rtc_clock;
 EnvironmentSensorManager sensors;
 
 #ifdef DISPLAY_CLASS
@@ -18,9 +27,9 @@ EnvironmentSensorManager sensors;
 #endif
 
 bool radio_init() {
-  fallback_clock.begin();
-  rtc_clock.begin(Wire);
+  rtc_clock.begin();
 
+  return radio.std_init(&SPI);
 #if defined(P_LORA_SCLK)
   return radio.std_init(&spi);
 #else
@@ -46,8 +55,4 @@ void radio_set_tx_power(uint8_t dbm) {
 mesh::LocalIdentity radio_new_identity() {
   RadioNoiseListener rng(radio);
   return mesh::LocalIdentity(&rng);  // create new random identity
-}
-
-void portduinoSetup()
-{
 }
