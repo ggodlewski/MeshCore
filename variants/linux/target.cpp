@@ -29,7 +29,23 @@ EnvironmentSensorManager sensors;
 bool radio_init() {
   rtc_clock.begin();
 
-  radio = new Module(hal, P_LORA_NSS, board.config.lora_irq_pin, board.config.lora_reset_pin, P_LORA_BUSY);
+  int nss_pin = P_LORA_NSS;
+  int busy_pin = P_LORA_BUSY;
+  int irq_pin = RADIOLIB_NC;
+  int reset_pin = RADIOLIB_NC;
+  if (board.config.lora_nss_pin != UINT32_MAX) {
+    nss_pin = (int)board.config.lora_nss_pin;
+  }
+  if (board.config.lora_busy_pin != UINT32_MAX) {
+    busy_pin = (int)board.config.lora_busy_pin;
+  }
+  if (board.config.lora_irq_pin != UINT32_MAX) {
+    irq_pin = (int)board.config.lora_irq_pin;
+  }
+  if (board.config.lora_reset_pin != UINT32_MAX) {
+    reset_pin = (int)board.config.lora_reset_pin;
+  }
+  radio = new Module(hal, nss_pin, irq_pin, reset_pin, busy_pin);
   return radio.std_init(&SPI);
 }
 

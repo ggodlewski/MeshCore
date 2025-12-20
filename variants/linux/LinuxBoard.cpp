@@ -36,19 +36,34 @@ void LinuxBoard::begin() {
   Serial.printf("SPI begin %s\n", config.spidev);
   SPI.begin(config.spidev);
 #if defined(P_LORA_NSS)
-  if (P_LORA_NSS != RADIOLIB_NC) {
-    initGPIOPin(P_LORA_NSS, "gpiochip0", P_LORA_NSS);
+  if (config.lora_nss_pin == UINT32_MAX && P_LORA_NSS != RADIOLIB_NC) {
+    config.lora_nss_pin = P_LORA_NSS;
   }
 #endif
 #if defined(P_LORA_BUSY)
-  if (P_LORA_BUSY != RADIOLIB_NC) {
-    initGPIOPin(P_LORA_BUSY, "gpiochip0", P_LORA_BUSY);
+  if (config.lora_busy_pin == UINT32_MAX && P_LORA_BUSY != RADIOLIB_NC) {
+    config.lora_busy_pin = P_LORA_BUSY;
   }
 #endif
-  if (config.lora_irq_pin != -1) {
+  int32_t nss_log = (config.lora_nss_pin == UINT32_MAX) ? -1 : (int32_t)config.lora_nss_pin;
+  int32_t busy_log = (config.lora_busy_pin == UINT32_MAX) ? -1 : (int32_t)config.lora_busy_pin;
+  int32_t irq_log = (config.lora_irq_pin == UINT32_MAX) ? -1 : (int32_t)config.lora_irq_pin;
+  int32_t reset_log = (config.lora_reset_pin == UINT32_MAX) ? -1 : (int32_t)config.lora_reset_pin;
+  Serial.printf("LoRa pins NSS=%d BUSY=%d IRQ=%d RESET=%d\n",
+                (int)nss_log,
+                (int)busy_log,
+                (int)irq_log,
+                (int)reset_log);
+  if (config.lora_nss_pin != UINT32_MAX) {
+    initGPIOPin((uint8_t)config.lora_nss_pin, "gpiochip0", (uint8_t)config.lora_nss_pin);
+  }
+  if (config.lora_busy_pin != UINT32_MAX) {
+    initGPIOPin((uint8_t)config.lora_busy_pin, "gpiochip0", (uint8_t)config.lora_busy_pin);
+  }
+  if (config.lora_irq_pin != UINT32_MAX) {
     initGPIOPin(config.lora_irq_pin, "gpiochip0", config.lora_irq_pin);
   }
-  if (config.lora_reset_pin != -1) {
+  if (config.lora_reset_pin != UINT32_MAX) {
     initGPIOPin(config.lora_reset_pin, "gpiochip0", config.lora_reset_pin);
   }
 }
@@ -108,6 +123,8 @@ int LinuxConfig::load(const char *filename) {
 
     else if (strcmp(key, "lora_irq_pin") == 0)   lora_irq_pin = atoi(value);
     else if (strcmp(key, "lora_reset_pin") == 0) lora_reset_pin = atoi(value);
+    else if (strcmp(key, "lora_nss_pin") == 0)   lora_nss_pin = atoi(value);
+    else if (strcmp(key, "lora_busy_pin") == 0)  lora_busy_pin = atoi(value);
 
     else if (strcmp(key, "advert_name") == 0)    advert_name = safe_copy(value, 100);
     else if (strcmp(key, "admin_password") == 0) admin_password = safe_copy(value, 100);

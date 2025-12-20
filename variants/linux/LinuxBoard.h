@@ -3,6 +3,7 @@
 #include <MeshCore.h>
 #include <Arduino.h>
 #include <sys/time.h>
+#include <cstdint>
 
 class LinuxConfig {
 public:
@@ -15,8 +16,10 @@ public:
   uint8_t lora_cr = 5;
 #endif
 
-  uint32_t lora_irq_pin = -1;
-  uint32_t lora_reset_pin = -1;
+  uint32_t lora_irq_pin = UINT32_MAX;
+  uint32_t lora_reset_pin = UINT32_MAX;
+  uint32_t lora_nss_pin = UINT32_MAX;
+  uint32_t lora_busy_pin = UINT32_MAX;
 
   char* spidev = "/dev/spidev0.0";
 
