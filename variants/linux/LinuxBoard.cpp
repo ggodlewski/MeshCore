@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include "linux/gpio/LinuxGPIOPin.h"
 #include "LinuxBoard.h"
+#include <RadioLib.h>
 
 int initGPIOPin(uint8_t pinNum, const std::string gpioChipName, uint8_t line)
 {
@@ -34,6 +35,16 @@ void LinuxBoard::begin() {
 
   Serial.printf("SPI begin %s\n", config.spidev);
   SPI.begin(config.spidev);
+#if defined(P_LORA_NSS)
+  if (P_LORA_NSS != RADIOLIB_NC) {
+    initGPIOPin(P_LORA_NSS, "gpiochip0", P_LORA_NSS);
+  }
+#endif
+#if defined(P_LORA_BUSY)
+  if (P_LORA_BUSY != RADIOLIB_NC) {
+    initGPIOPin(P_LORA_BUSY, "gpiochip0", P_LORA_BUSY);
+  }
+#endif
   if (config.lora_irq_pin != -1) {
     initGPIOPin(config.lora_irq_pin, "gpiochip0", config.lora_irq_pin);
   }
